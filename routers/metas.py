@@ -12,6 +12,7 @@ from bancodados import (
     buscar_parcelas_meta,
     atualizar_parcelas_meta,
     buscar_anos_meta,
+    alternar_parcela_meta,
 )
 
 router = APIRouter(prefix="/metas", tags=["Metas"])
@@ -91,11 +92,14 @@ def atualizar_meta_existente(dados: AtualizarMetaSchema):
     if not _anos_valido(dados.anos):
         raise HTTPException(status_code=400, detail=f"Quantidade de anos inválida. Deve ser entre {ANOS_MINIMO} e {ANOS_MAXIMO}.")
 
+    # Editar a meta sempre zera as parcelas já marcadas (o valor de cada
+    # parcela muda junto com o valor total/prazo da meta).
     atualizar_meta(usuario_id, titulo_antigo_formatado, titulo_formatado, dados.meta_total, dados.anos)
 
     total_parcelas = dados.anos * MESES_POR_ANO
     return {
-        "mensagem": "Meta atualizada com sucesso!",
+        "mensagem": "Meta atualizada com sucesso! As parcelas guardadas foram zeradas.",
+        "parcelas_zeradas": True,
         "usuario": dados.usuario,
         "titulo": titulo_formatado,
         "meta_total": dados.meta_total,
@@ -143,12 +147,12 @@ def marcar_parcela(dados: ParcelaSchema):
     if dados.indice < 0 or dados.indice >= total_parcelas:
         raise HTTPException(status_code=400, detail=f"Índice de parcela inválido. Deve ser entre 0 e {total_parcelas - 1}.")
 
-    parcelas_atuais = _parse_parcelas(buscar_parcelas_meta(usuario_id, titulo_formatado))
-    parcelas_atualizadas = sorted(set(parcelas_atuais) | {dados.indice})
-    atualizar_parcelas_meta(usuario_id, titulo_formatado, ",".join(str(i) for i in parcelas_atualizadas))
+    # Alterna: se já estava marcada, desmarca; se não estava, marca.
+    parcelas_atualizadas, marcada = alternar_parcela_meta(usuario_id, titulo_formatado, dados.indice)
 
     return {
-        "mensagem": "Parcela marcada como concluída!",
+        "mensagem": "Parcela marcada como concluída!" if marcada else "Parcela desmarcada.",
+        "marcada": marcada,
         "parcelas": parcelas_atualizadas
     }
 
