@@ -6,7 +6,7 @@ transacoes = """
     usuario_id INTEGER NOT NULL,
     tipo TEXT NOT NULL, 
     categoria TEXT NOT NULL,
-    valor REAL NOT NULL,
+    valor TEXT NOT NULL,
     data TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'pago',
     FOREIGN KEY (usuario_id) REFERENCES usuarios (id) ON DELETE CASCADE
@@ -35,12 +35,23 @@ metas = """
     FOREIGN KEY (usuario_id) REFERENCES usuarios (id) ON DELETE CASCADE
 )"""
 
+categorias_personalizadas = """
+    CREATE TABLE IF NOT EXISTS categorias_personalizadas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    usuario_id INTEGER NOT NULL,
+    tipo TEXT NOT NULL,
+    nome TEXT NOT NULL,
+    FOREIGN KEY (usuario_id) REFERENCES usuarios (id) ON DELETE CASCADE,
+    UNIQUE (usuario_id, tipo, nome)
+)"""
+
 def criar_banco():
     conn = sqlite3.connect("banco.db")
     cursor = conn.cursor()
     cursor.execute(usuario)
     cursor.execute(metas)
     cursor.execute(transacoes)
+    cursor.execute(categorias_personalizadas)
     conn.commit()
 
 
@@ -51,8 +62,6 @@ def criar_banco():
         pass
 
     try:
-        # Metas antigas (criadas com base em salário) continuam valendo
-        # como se fossem de 1 ano (12 parcelas mensais), igual era antes.
         cursor.execute("ALTER TABLE metas ADD COLUMN anos INTEGER NOT NULL DEFAULT 1")
         conn.commit()
     except sqlite3.OperationalError:
@@ -108,7 +117,7 @@ def inserir_transacao(usuario_id, tipo, categoria, valor, data, status):
     cursor = conn.cursor()
     cursor.execute(
         "INSERT INTO transacoes (usuario_id, tipo, categoria, valor, data, status) VALUES (?, ?, ?, ?, ?, ?)", 
-        (usuario_id, tipo, categoria, valor, data, status)
+        (usuario_id, tipo, categoria, str(valor), data, status) 
     )
     conn.commit()
     conn.close()
@@ -130,7 +139,25 @@ def deletar_transacao(id):
     conn.commit()
     conn.close()
 
+def efetivar_transacoes_pendentes(usuario_id):
+    """
+    Toda transação (receita ou despesa) que estava com status 'pendente'
+    e cuja data já chegou (data <= hoje) passa automaticamente a 'pago',
+    entrando no saldo/receitas/despesas normalmente a partir de agora.
+    """
+    conn = sqlite3.connect("banco.db")
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE transacoes SET status = 'pago' "
+        "WHERE usuario_id = ? AND status = 'pendente' AND data <= date('now')",
+        (usuario_id,)
+    )
+    conn.commit()
+    conn.close()
+
 def listar_transacoes(usuario_id):
+    efetivar_transacoes_pendentes(usuario_id)
+
     conn = sqlite3.connect("banco.db")
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM transacoes WHERE usuario_id = ?", (usuario_id,))
@@ -195,11 +222,28 @@ def atualizar_meta(usuario_id, titulo_antigo, titulo_novo, meta, anos):
     conn = sqlite3.connect("banco.db")
     cursor = conn.cursor()
     cursor.execute(
-        "UPDATE metas SET titulo = ?, meta = ?, anos = ? WHERE usuario_id = ? AND titulo = ?",
+        "UPDATE metas SET titulo = ?, meta = ?, anos = ?, parcelas_concluidas = '' WHERE usuario_id = ? AND titulo = ?",
         (titulo_novo, meta, anos, usuario_id, titulo_antigo)
     )
     conn.commit()
     conn.close()
+
+def alternar_parcela_meta(usuario_id, titulo, indice):
+    """Marca a parcela se ela ainda não estava concluída, ou desmarca se já estava."""
+    parcelas_atuais = buscar_parcelas_meta(usuario_id, titulo)
+    indices = sorted(set(int(p) for p in parcelas_atuais.split(",") if p != ""))
+
+    if indice in indices:
+        indices.remove(indice)
+        marcada = False
+    else:
+        indices.append(indice)
+        indices = sorted(set(indices))
+        marcada = True
+
+    nova_string = ",".join(str(i) for i in indices)
+    atualizar_parcelas_meta(usuario_id, titulo, nova_string)
+    return indices, marcada
 
 def buscar_anos_meta(usuario_id, titulo):
     conn = sqlite3.connect("banco.db")
@@ -232,6 +276,36 @@ def atualizar_parcelas_meta(usuario_id, titulo, parcelas_concluidas):
     )
     conn.commit()
     conn.close()
+
+def inserir_categoria_personalizada(usuario_id, tipo, nome):
+    conn = sqlite3.connect("banco.db")
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "INSERT INTO categorias_personalizadas (usuario_id, tipo, nome) VALUES (?, ?, ?)",
+            (usuario_id, tipo, nome)
+        )
+        conn.commit()
+    except sqlite3.IntegrityError:
+        pass  
+    conn.close()
+
+def listar_categorias_personalizadas(usuario_id, tipo=None):
+    conn = sqlite3.connect("banco.db")
+    cursor = conn.cursor()
+    if tipo:
+        cursor.execute(
+            "SELECT nome FROM categorias_personalizadas WHERE usuario_id = ? AND tipo = ? ORDER BY id",
+            (usuario_id, tipo)
+        )
+    else:
+        cursor.execute(
+            "SELECT tipo, nome FROM categorias_personalizadas WHERE usuario_id = ? ORDER BY id",
+            (usuario_id,)
+        )
+    dados = cursor.fetchall()
+    conn.close()
+    return dados
 
 def reiniciar_dados_usuario(usuario_id):
     conn = sqlite3.connect("banco.db")
