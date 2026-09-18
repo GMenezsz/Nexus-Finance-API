@@ -36,10 +36,10 @@ TIPOS_DESPESA = ["despesa", "saida", "saída", "gasto"]
 
 def autenticar_categoria(tipo, categoria):
     tipo = tipo.lower()
-    if tipo in TIPOS_RECEITA:
-        return categoria in CATEGORIAS_RECEITA
-    elif tipo in TIPOS_DESPESA:
-        return categoria in CATEGORIAS_DESPESA
+    categoria_limpa = categoria.strip()
+
+    if tipo in TIPOS_RECEITA or tipo in TIPOS_DESPESA:
+        return len(categoria_limpa) > 0
     else:
         return False
 
