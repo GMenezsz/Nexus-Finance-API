@@ -78,7 +78,3 @@ python -m http.server 8080
 O app pode ser instalado na tela inicial:
 - **Android/Desktop:** clique em "Baixar App" no cabeçalho.
 - **iOS:** use o botão de compartilhar do Safari → "Adicionar à Tela de Início".
-
-## 📄 Licença
-
-Projeto pessoal — defina a licença de acordo com sua necessidade (ex: MIT).
